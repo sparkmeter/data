@@ -8,7 +8,7 @@
 import * as os from 'os';
 import { flags, FlagsConfig } from '@salesforce/command';
 import { Connection, Logger, Messages } from '@salesforce/core';
-import { ensureJsonArray, ensureJsonMap, ensureString, isJsonArray, toJsonMap } from '@salesforce/ts-types';
+import { AnyJson, ensureJsonArray, ensureJsonMap, ensureString, isJsonArray, toJsonMap } from '@salesforce/ts-types';
 import { Tooling } from '@salesforce/core/lib/connection';
 import { CsvReporter, FormatTypes, HumanReporter, JsonReporter } from '../../../../reporters';
 import { Field, FieldType, SoqlQueryResult } from '../../../../dataSoqlQueryTypes';
@@ -59,10 +59,9 @@ export class SoqlQuery {
     const columnUrl = `${connection._baseUrl()}/query?q=${encodeURIComponent(query)}&columns=true`;
     const results = toJsonMap(await connection.request(columnUrl));
     const columns: Field[] = [];
-    for (let column of ensureJsonArray(results.columnMetadata)) {
+    const processColumn = function (column: AnyJson, chain?: string): void {
       column = ensureJsonMap(column);
-      const name = ensureString(column.columnName);
-
+      const name = (chain || '') + ensureString(column.columnName);
       if (isJsonArray(column.joinColumns) && column.joinColumns.length > 0) {
         if (column.aggregate) {
           const field: Field = {
@@ -80,11 +79,7 @@ export class SoqlQuery {
           columns.push(field);
         } else {
           for (const subcolumn of column.joinColumns) {
-            const f: Field = {
-              fieldType: FieldType.field,
-              name: `${name}.${ensureString(ensureJsonMap(subcolumn).columnName)}`,
-            };
-            columns.push(f);
+            processColumn(subcolumn, `${name}.`);
           }
         }
       } else if (column.aggregate) {
@@ -100,6 +95,9 @@ export class SoqlQuery {
       } else {
         columns.push({ fieldType: FieldType.field, name } as Field);
       }
+    };
+    for (const column of ensureJsonArray(results.columnMetadata)) {
+      processColumn(column);
     }
     return columns;
   }
